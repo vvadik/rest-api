@@ -42,6 +42,9 @@ async def database_handler(request: web.Request) -> dict:
         if not valid:
             return reason
 
+        if 'MAIN' in form_data:
+            form_data[form_data['MAIN']] = 'MAIN'
+
         await redis.mset(form_data)
         return {'status': 200}
 
@@ -90,8 +93,12 @@ async def get_keys(request_args: dict,
 
     keys = await redis.mget(request_args['from'], request_args['to'], 'MAIN')
 
+    print(keys)
+    print(request_args['from'], request_args['to'])
+
     if request_args['from'] == request_args['to']:
-        return True, {}, [1 if key is None else key for key in keys]
+        return True, {}, [1 if key == 'MAIN' or key is None else key
+                          for key in keys]
 
     # # if (keys[2] is None
     # #         #  or (keys[0] != keys[1])
@@ -102,8 +109,7 @@ async def get_keys(request_args: dict,
     # #             and (request_args['from'] is None
     # #                 or request_args['to'] is None))):
     # #         # or keys[0] != keys[1]):
-    # # print(keys)
-    # # print(request_args['from'], request_args['to'])
+
     #
     # if (keys[2] is None
     #         or (keys[0] is None
@@ -116,15 +122,13 @@ async def get_keys(request_args: dict,
     # 1. Давайте хранить MAIN: USD и USD: MAIN
     # Попробуем переписать логику проверки ключей
 
-    elif request_args['from'] == keys[2] or request_args['to'] == keys[2]:
-        return True, {}, [1 if key is None else key for key in keys]
+    for key in keys:
+        if key is None:
+            return False, {'status': 400, 'reason': 'key not found'}, []
 
-    # for key in keys:
-    #     if key is None:
-    #         return (False,
-    #                 {'status': 400,
-    #                  'reason': 'key not found'},
-    #                 )
+    if keys[0] == 'MAIN' or keys[1] == 'MAIN':
+        return True, {}, [1 if key == 'MAIN' else key for key in keys]
+
     return True, {}, keys
 
 
