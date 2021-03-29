@@ -63,19 +63,21 @@ async def converter(request: web.Request) -> dict:
     if not valid:
         return reason
 
-    key_from, key_to, key_main = await redis.mget(request_args['from'], 
-                                                  request_args['to'],
-                                                  'MAIN')
-    key_from, key_to = float(key_from), float(key_to)
+    (key_from_amount,
+     key_to_amount,
+     key_main) = await redis.mget(request_args['from'],
+                                  request_args['to'],
+                                  'MAIN')
+    key_from_amount, key_to_amount = float(key_from_amount), float(key_to_amount)
     amount_request = float(request_args['amount'])
 
     if request_args['from'] == key_main:
-        amount = amount_request * key_to
+        amount = amount_request * key_to_amount
     elif request_args['to'] == key_main:
-        amount = amount_request / key_from
+        amount = amount_request / key_from_amount
     else:
-        amount_main = amount_request / key_from
-        amount = amount_main * key_to
+        amount_main = amount_request / key_from_amount
+        amount = amount_main * key_to_amount
     return {'status': 200, 'amount': amount}
 
 
@@ -90,7 +92,8 @@ async def check_args(args: dict) -> (bool, dict):
 
 async def check_keys_in_db(request_args: dict,
                            redis: aioredis.commands.Redis) -> (bool, dict):
-
+    # TODO: надо ипользовать exists,
+    # если только не придет False и придется граничить если захотим сделать 0
     keys = await redis.mget(request_args['from'], request_args['to'], 'MAIN')
     for key in keys:
         if key is None:
