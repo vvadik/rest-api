@@ -45,6 +45,8 @@ async def database_handler(request: web.Request) -> dict:
         await redis.mset(form_data)
         return {'status': 200}
 
+    return {'status': 400, 'reason': 'unknown merge argument'}
+
 
 async def converter(request: web.Request) -> dict:
     redis = request.app['redis']
@@ -58,17 +60,12 @@ async def converter(request: web.Request) -> dict:
     if not valid:
         return reason
 
-    # TODO: делать exists а не mget
-    valid, reason = await check_keys_in_db(request_args, redis)
+    valid, reason, keys = await get_keys(request_args, redis)
     if not valid:
         return reason
 
-    (key_from_amount,
-     key_to_amount,
-     key_main) = await redis.mget(request_args['from'],
-                                  request_args['to'],
-                                  'MAIN')
-    key_from_amount, key_to_amount = float(key_from_amount), float(key_to_amount)
+    key_from_amount, key_to_amount = float(keys[0]), float(keys[1])
+    key_main = keys[2]
     amount_request = float(request_args['amount'])
 
     if request_args['from'] == key_main:
@@ -84,23 +81,51 @@ async def converter(request: web.Request) -> dict:
 async def check_args(args: dict) -> (bool, dict):
     for key, value in args.items():
         if not value:
-            return (False,
-                    {'status': 400,
-                     'invalid argument': key})
+            return False, {'status': 400, 'invalid argument': key}
     return True, {}
 
 
-async def check_keys_in_db(request_args: dict,
-                           redis: aioredis.commands.Redis) -> (bool, dict):
-    # TODO: надо ипользовать exists,
-    # если только не придет False и придется граничить если захотим сделать 0
+async def get_keys(request_args: dict,
+                   redis: aioredis.commands.Redis) -> (bool, dict, list):
+
     keys = await redis.mget(request_args['from'], request_args['to'], 'MAIN')
-    for key in keys:
-        if key is None:
-            return (False,
-                    {'status': 400,
-                     'reason': 'key not found'})
-    return True, {}
+
+    if request_args['from'] == request_args['to']:
+        return True, {}, [1 if key is None else key for key in keys]
+
+    # # if (keys[2] is None
+    # #         #  or (keys[0] != keys[1])
+    # #         or (keys[0] is None and keys[1] is None
+    # #             and request_args['from'] != request_args['to'])
+    # #         or ((request_args['from'] != keys[2]
+    # #              and request_args['to'] != keys[2])
+    # #             and (request_args['from'] is None
+    # #                 or request_args['to'] is None))):
+    # #         # or keys[0] != keys[1]):
+    # # print(keys)
+    # # print(request_args['from'], request_args['to'])
+    #
+    # if (keys[2] is None
+    #         or (keys[0] is None
+    #             and request_args['to'] == keys[2])
+    #         or (keys[1] is None
+    #             and request_args['from'] == keys[2])):
+    #     return False, {'status': 400, 'reason': 'key not found'}, []
+
+    # TODO: какие мысли.
+    # 1. Давайте хранить MAIN: USD и USD: MAIN
+    # Попробуем переписать логику проверки ключей
+
+    elif request_args['from'] == keys[2] or request_args['to'] == keys[2]:
+        return True, {}, [1 if key is None else key for key in keys]
+
+    # for key in keys:
+    #     if key is None:
+    #         return (False,
+    #                 {'status': 400,
+    #                  'reason': 'key not found'},
+    #                 )
+    return True, {}, keys
 
 
 async def check_updating_keys(request_args: dict) -> (bool, dict):
@@ -117,7 +142,7 @@ async def check_updating_keys(request_args: dict) -> (bool, dict):
     return True, {}
 
 
-async def close_redis(app):
+async def close_redis(app: web.Application) -> None:
     app['redis'].close()
 
 
