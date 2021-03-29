@@ -4,7 +4,6 @@ from aiohttp import web
 
 
 router = web.RouteTableDef()
-temp_db = {}
 
 
 @router.get('/convert')
@@ -20,30 +19,16 @@ async def database(request: web.Request) -> web.Response:
 
 
 async def database_handler(request: web.Request) -> dict:
-
-
-    global temp_db
     redis = request.app['redis']
     merge = request.rel_url.query.get('merge')
-    is_valid, reason = await check_args({'merge': merge})
-    if not is_valid:
+    valid, reason = await check_args({'merge': merge})
+    if not valid:
         return reason
 
     if merge == '0':
-        # drop table
-        temp_db = {}
-        # await redis.mset({'a': 1, 'asd': 'aaa'})
-
-        # data = await redis.mget('a')
-        # print('mget one', data)
-
-        # print('mget two', await redis.mget('a', 'asd'))
         await redis.flushdb()
-        # print('mget two', await redis.mget('a', 'asd'))
-
-
         return {'status': 200}
-    else:
+    elif merge == '1':
         try:
             form_data = await request.json()
         except json.decoder.JSONDecodeError as error:
@@ -53,48 +38,39 @@ async def database_handler(request: web.Request) -> dict:
                 'exception': str(error)
             }
 
-        is_valid, reason, form_data = await convert_updating_keys(form_data)  # в бд всегда хранится строка, ее придется кастовать когда достаю
-        if not is_valid:
+        valid, reason = await check_updating_keys(form_data)
+        if not valid:
             return reason
 
-        for key, value in form_data.items():
-            temp_db[key] = value
-
         await redis.mset(form_data)
-
         return {'status': 200}
 
 
 async def converter(request: web.Request) -> dict:
-
-
-    global temp_db
     redis = request.app['redis']
-
-
     request_args = {
             'from': request.rel_url.query.get('from'),
             'to': request.rel_url.query.get('to'),
             'amount': request.rel_url.query.get('amount'),
         }
 
-    is_valid, reason = await check_args(request_args)
-    if not is_valid:
+    valid, reason = await check_args(request_args)
+    if not valid:
         return reason
 
-    is_valid, reason = await check_keys_in_db(request_args, redis)
-    if not is_valid:
+    # TODO: делать exists а не mget
+    valid, reason = await check_keys_in_db(request_args, redis)
+    if not valid:
         return reason
-
-    amount_request = float(request_args['amount'])
 
     key_from, key_to, key_main = await redis.mget(request_args['from'], 
                                                   request_args['to'],
                                                   'MAIN')
     key_from, key_to = float(key_from), float(key_to)
+    amount_request = float(request_args['amount'])
 
     if request_args['from'] == key_main:
-        amount = amount_request * temp_db[request_args['to']]
+        amount = amount_request * key_to
     elif request_args['to'] == key_main:
         amount = amount_request / key_from
     else:
@@ -123,44 +99,19 @@ async def check_keys_in_db(request_args: dict,
                      'reason': 'key not found'})
     return True, {}
 
-    print(keys)
 
-    if ((keys[0] is None
-         or request_args['from'] != keys[2])
-            and (keys[1] is None
-                 or request_args['to'] != keys[2])):
-        return (False,
-                {'status': 400,
-                 'reason': 'key not found'})
-    return True, {}
-
-
-
-    # global temp_db
-    #
-    # if not ((request_args['from'] in temp_db
-    #         or request_args['from'] == temp_db['MAIN'])
-    #         and (request_args['to'] in temp_db
-    #              or request_args['to'] == temp_db['MAIN'])):
-    #     return (False,
-    #             {'status': 400,
-    #              'reason': 'key not found'})
-    # return True, {}
-
-
-async def convert_updating_keys(request_args: dict) -> (bool, dict, dict):
+async def check_updating_keys(request_args: dict) -> (bool, dict):
     for key, value in request_args.items():
         if key != 'MAIN':
             try:
-                request_args[key] = float(value)
+                float(value)
             except ValueError:
                 return (False,
                         {'status': 400,
                          'reason': f'Wrong format value {value}. '
-                                   f'Expected int or double'},
-                        {})
+                                   f'Expected int or double'})
 
-    return True, {}, request_args
+    return True, {}
 
 
 async def close_redis(app):
@@ -179,7 +130,4 @@ async def init_server() -> web.Application:
 
 
 if __name__ == "__main__":
-    # data = r.mset({"Croatia": "Zagreb", "Bahamas": "Nassau"})
-    # print(data)
-    # print(r.get("Bahamas"))
     web.run_app(init_server(), port=8080)
