@@ -92,43 +92,12 @@ async def get_keys(request_args: dict,
                    redis: aioredis.commands.Redis) -> (bool, dict, list):
 
     keys = await redis.mget(request_args['from'], request_args['to'], 'MAIN')
-
-    print(keys)
-    print(request_args['from'], request_args['to'])
-
-    if request_args['from'] == request_args['to']:
-        return True, {}, [1 if key == 'MAIN' or key is None else key
-                          for key in keys]
-
-    # # if (keys[2] is None
-    # #         #  or (keys[0] != keys[1])
-    # #         or (keys[0] is None and keys[1] is None
-    # #             and request_args['from'] != request_args['to'])
-    # #         or ((request_args['from'] != keys[2]
-    # #              and request_args['to'] != keys[2])
-    # #             and (request_args['from'] is None
-    # #                 or request_args['to'] is None))):
-    # #         # or keys[0] != keys[1]):
-
-    #
-    # if (keys[2] is None
-    #         or (keys[0] is None
-    #             and request_args['to'] == keys[2])
-    #         or (keys[1] is None
-    #             and request_args['from'] == keys[2])):
-    #     return False, {'status': 400, 'reason': 'key not found'}, []
-
-    # TODO: какие мысли.
-    # 1. Давайте хранить MAIN: USD и USD: MAIN
-    # Попробуем переписать логику проверки ключей
-
     for key in keys:
         if key is None:
             return False, {'status': 400, 'reason': 'key not found'}, []
 
-    if keys[0] == 'MAIN' or keys[1] == 'MAIN':
+    if 'MAIN' in keys:
         return True, {}, [1 if key == 'MAIN' else key for key in keys]
-
     return True, {}, keys
 
 
